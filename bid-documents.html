@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bid Documents - Demolition Project Engineering Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
+    <script src="utils.js"></script>
+</head>
+<body>
+    <header>
+        <div class="logo">Demolition Project Dashboard</div>
+        <div class="user-info">
+            <span>Project Engineer</span>
+            <img src="/api/placeholder/40/40" alt="User Avatar">
+        </div>
+    </header>
+    
+    <nav>
+        <ul>
+            <li><a href="/dashboard.html">Dashboard</a></li>
+            <li><a href="/projects.html">Projects</a></li>
+            <li><a href="/bid-documents.html" class="active">Bid Documents</a></li>
+            <li><a href="#">RFIs</a></li>
+            <li><a href="#">Subcontractors</a></li>
+            <li><a href="#">Reports</a></li>
+        </ul>
+    </nav>
+    
+    <div class="container">
+        <div class="excel-integration">
+            <h3>Document Management</h3>
+            <p>Comprehensive control over bid documents across all projects.</p>
+            <div class="excel-buttons">
+                <button class="btn btn-primary" id="bulkImport"><i>↑</i> Bulk Import</button>
+                <button class="btn btn-primary" id="exportAll"><i>↓</i> Export All</button>
+                <button class="btn btn-primary" id="syncRepo"><i>↻</i> Sync Repository</button>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Bid Documents Repository</h2>
+                <div class="card-actions">
+                    <a href="#" id="uploadNew">Upload New</a>
+                    <button class="btn btn-secondary" id="downloadSelected">Download Selected</button>
+                </div>
+            </div>
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-value" id="totalDocs">0</div>
+                    <div class="metric-label">Total Documents</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value" id="pendingDocs">0</div>
+                    <div class="metric-label">Pending Review</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value" id="reviewedDocs">0</div>
+                    <div class="metric-label">Reviewed</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value" id="projectsCount">0</div>
+                    <div class="metric-label">Projects</div>
+                </div>
+            </div>
+            <ul class="tabs" id="projectTabs"></ul>
+            <div class="search-bar">
+                <input type="text" placeholder="Search documents in current project..." id="searchInput">
+                <button class="btn btn-secondary" id="searchBtn">Search</button>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th><input type="checkbox" id="selectAll"></th>
+                        <th>Document Name</th>
+                        <th>Type</th>
+                        <th>Uploaded</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="docTableBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let dashboardData = { projects: {}, documents: [] };
+
+        async function fetchData() {
+            try {
+                const projectsRes = await fetch('http://localhost:3000/api/projects');
+                if (!projectsRes.ok) throw new Error(`HTTP error! Status: ${projectsRes.status}`);
+                const projects = await projectsRes.json();
+                const docsRes = await fetch('http://localhost:3000/api/documents');
+                if (!docsRes.ok) throw new Error(`HTTP error! Status: ${docsRes.status}`);
+                dashboardData.documents = await docsRes.json();
+                dashboardData.projects = projects.reduce((acc, p) => {
+                    acc[p.name] = dashboardData.documents.filter(d => d.project_id === p.id);
+                    return acc;
+                }, {});
+                updateMetrics();
+                renderTabs();
+                renderDocuments(Object.keys(dashboardData.projects)[0]);
+            } catch (error) {
+                console.error('Fetch data error:', error);
+                document.getElementById('docTableBody').innerHTML = '<tr><td colspan="6">Error loading documents. Check console.</td></tr>';
+            }
+        }
+
+        function updateMetrics() {
+            const allDocs = dashboardData.documents;
+            document.getElementById('totalDocs').textContent = allDocs.length;
+            document.getElementById('pendingDocs').textContent = allDocs.filter(d => d.status === 'Pending Review').length;
+            document.getElementById('reviewedDocs').textContent = allDocs.filter(d => d.status === 'Reviewed').length;
+            document.getElementById('projectsCount').textContent = Object.keys(dashboardData.projects).length;
+        }
+
+        function renderTabs() {
+            const tabsContainer = document.getElementById('projectTabs');
+            tabsContainer.innerHTML = '';
+            Object.keys(dashboardData.projects).forEach((project, index) => {
+                const tab = document.createElement('li');
+                tab.className = 'tab';
+                tab.textContent = project;
+                tab.dataset.project = project;
+                if (index === 0) tab.classList.add('active');
+                tabsContainer.appendChild(tab);
+            });
+        }
+
+        function renderDocuments(project, filter = '') {
+            const tableBody = document.getElementById('docTableBody');
+            tableBody.innerHTML = '';
+            const docs = dashboardData.projects[project] || [];
+            const filteredDocs = docs.filter(doc => 
+                doc.name.toLowerCase().includes(filter.toLowerCase()) || 
+                doc.type.toLowerCase().includes(filter.toLowerCase())
+            );
+            filteredDocs.forEach(doc => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td><input type="checkbox" class="doc-select" data-name="${doc.name}"></td>
+                    <td>${doc.name}</td>
+                    <td>${doc.type}</td>
+                    <td>${new Date(doc.uploaded_date).toLocaleDateString()}</td>
+                    <td>${doc.status}</td>
+                    <td>
+                        <a href="#" class="view-link" data-doc="${doc.name}">View</a> | 
+                        <a href="#" class="download-link" data-doc="${doc.name}">Download</a>
+                    </td>
+                `;
+                tableBody.appendChild(tr);
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchData();
+
+            document.getElementById('bulkImport').addEventListener('click', () => {
+                handleExcelImport(async (newDocs) => {
+                    try {
+                        await Promise.all(newDocs.map(doc => 
+                            fetch('http://localhost:3000/api/documents', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    project_id: doc.project_id || 1,
+                                    name: doc.name,
+                                    type: doc.type || 'Unknown',
+                                    uploaded_date: doc.uploaded_date || new Date().toISOString().split('T')[0],
+                                    status: doc.status || 'Pending Review'
+                                })
+                            })
+                        ));
+                        fetchData();
+                        alert('Documents bulk imported successfully!');
+                    } catch (error) {
+                        console.error('Bulk import error:', error);
+                        alert('Failed to import documents.');
+                    }
+                });
+            });
+
+            document.getElementById('exportAll').addEventListener('click', () => {
+                exportToExcel(dashboardData.documents, 'All_Bid_Documents.xlsx');
+            });
+
+            document.getElementById('uploadNew').addEventListener('click', (e) => {
+                e.preventDefault();
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.onchange = async (e) => {
+                    const file = e.target.files[0];
+                    const activeProject = document.querySelector('.tab.active')?.dataset.project;
+                    const projectId = Object.keys(dashboardData.projects).indexOf(activeProject) + 1 || 1;
+                    try {
+                        await fetch('http://localhost:3000/api/documents', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                project_id: projectId,
+                                name: file.name,
+                                type: 'Uploaded File',
+                                uploaded_date: new Date().toISOString().split('T')[0],
+                                status: 'Pending Review'
+                            })
+                        });
+                        fetchData();
+                        alert('New document uploaded successfully!');
+                    } catch (error) {
+                        console.error('Upload error:', error);
+                        alert('Failed to upload document.');
+                    }
+                };
+                input.click();
+            });
+
+            document.getElementById('projectTabs').addEventListener('click', (e) => {
+                if (e.target.classList.contains('tab')) {
+                    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                    e.target.classList.add('active');
+                    renderDocuments(e.target.dataset.project, document.getElementById('searchInput').value);
+                }
+            });
+
+            document.getElementById('searchBtn').addEventListener('click', () => {
+                const activeProject = document.querySelector('.tab.active')?.dataset.project;
+                renderDocuments(activeProject, document.getElementById('searchInput').value);
+            });
+
+            document.getElementById('searchInput').addEventListener('input', () => {
+                const activeProject = document.querySelector('.tab.active')?.dataset.project;
+                renderDocuments(activeProject, document.getElementById('searchInput').value);
+            });
+        });
+    </script>
+    
+    <script>
+        // Add this code to make bid documents page buttons functional
+
+/**
+ * Initialize bid documents functionality
+ */
+function initializeBidDocuments() {
+  // Bulk import button
+  const bulkImportBtn = document.getElementById('bulkImport');
+  if (bulkImportBtn) {
+    bulkImportBtn.addEventListener('click', function() {
+      if (typeof handleExcelImport === 'function') {
+        handleExcelImport(function(data) {
+          // Process imported documents
+          console.log('Imported documents:', data);
+          
+          // Show success message
+          showToast('Import Successful', `Imported ${data.length} documents successfully`, 'success');
+          
+          // Refresh the documents list
+          if (typeof fetchData === 'function') {
+            fetchData();
+          }
+        });
+      } else {
+        // Fallback if handleExcelImport is not available
+        alert('Excel import functionality is not available');
+      }
+    });
+  }
+  
+  // Export all button
+  const exportAllBtn = document.getElementById('exportAll');
+  if (exportAllBtn) {
+    exportAllBtn.addEventListener('click', function() {
+      // Get documents data
+      const documents = window.dashboardData ? window.dashboardData.documents : [];
+      
+      if (typeof exportToExcel === 'function' && documents.length > 0) {
+        exportToExcel(documents, 'Bid_Documents_Export.xlsx');
+      } else {
+        showToast('Export', 'No documents to export or export function not available', 'warning');
+      }
+    });
+  }
+  
+  // Sync repository button
+  const syncRepoBtn = document.getElementById('syncRepo');
+  if (syncRepoBtn) {
+    syncRepoBtn.addEventListener('click', function() {
+      showToast('Sync Started', 'Synchronizing document repository...', 'info');
+      
+      // Simulate sync process
+      setTimeout(function() {
+        showToast('Sync Complete', 'Document repository synchronized successfully', 'success');
+        
+        // Refresh the documents list
+        if (typeof fetchData === 'function') {
+          fetchData();
+        }
+      }, 2000);
+    });
+  }
+  
+  // Upload new button
+  const uploadNewBtn = document.getElementById('uploadNew');
+  if (uploadNewBtn) {
+    uploadNewBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      
+      // Create file input element
+      const fileInput = document.createElement('input');
+      fileInput.type = 'file';
+      fileInput.multiple = true;
+      
+      fileInput.addEventListener('change', function(e) {
+        const files = e.target.files;
+        
+        if (files.length > 0) {
+          showToast('Upload Started', `Uploading ${files.length} document(s)...`, 'info');
+          
+          // Simulate upload process
+          setTimeout(function() {
+            showToast('Upload Complete', `${files.length} document(s) uploaded successfully`, 'success');
+            
+            // Refresh the documents list
+            if (typeof fetchData === 'function') {
+              fetchData();
+            }
+          }, 1500);
+        }
+      });
+      
+      // Trigger file input click
+      fileInput.click();
+    });
+  }
+  
+  // Download selected button
+  const downloadSelectedBtn = document.getElementById('downloadSelected');
+  if (downloadSelectedBtn) {
+    downloadSelectedBtn.addEventListener('click', function() {
+      // Get selected documents
+      const selectedCheckboxes = document.querySelectorAll('.doc-select:checked');
+      const selectedCount = selectedCheckboxes.length;
+      
+      if (selectedCount === 0) {
+        showToast('No Selection', 'Please select documents to download', 'warning');
+        return;
+      }
+      
+      showToast('Download Started', `Downloading ${selectedCount} document(s)...`, 'info');
+      
+      // Simulate download process
+      setTimeout(function() {
+        showToast('Download Complete', `${selectedCount} document(s) downloaded successfully`, 'success');
+      }, 1500);
+    });
+  }
+  
+  // Select all checkbox
+  const selectAllCheckbox = document.getElementById('selectAll');
+  if (selectAllCheckbox) {
+    selectAllCheckbox.addEventListener('change', function() {
+      const docCheckboxes = document.querySelectorAll('.doc-select');
+      docCheckboxes.forEach(function(checkbox) {
+        checkbox.checked = selectAllCheckbox.checked;
+      });
+    });
+  }
+  
+  // Search functionality
+  const searchBtn = document.getElementById('searchBtn');
+  const searchInput = document.getElementById('searchInput');
+  
+  if (searchBtn && searchInput) {
+    searchBtn.addEventListener('click', function() {
+      const searchTerm = searchInput.value.trim().toLowerCase();
+      const activeTab = document.querySelector('.tab.active');
+      
+      if (activeTab) {
+        const project = activeTab.dataset.project;
+        renderDocuments(project, searchTerm);
+      }
+    });
+    
+    // Also enable search on Enter key
+    searchInput.addEventListener('keyup', function(e) {
+      if (e.key === 'Enter') {
+        searchBtn.click();
+      }
+    });
+  }
+  
+  // Project tabs
+  const projectTabs = document.getElementById('projectTabs');
+  if (projectTabs) {
+    projectTabs.addEventListener('click', function(e) {
+      if (e.target.classList.contains('tab')) {
+        // Remove active class from all tabs
+        const tabs = projectTabs.querySelectorAll('.tab');
+        tabs.forEach(function(tab) {
+          tab.classList.remove('active');
+        });
+        
+        // Add active class to clicked tab
+        e.target.classList.add('active');
+        
+        // Render documents for the selected project
+        const project = e.target.dataset.project;
+        const searchTerm = searchInput ? searchInput.value.trim() : '';
+        renderDocuments(project, searchTerm);
+      }
+    });
+  }
+  
+  // Document actions (view, download)
+  document.addEventListener('click', function(e) {
+    // View document
+    if (e.target.classList.contains('view-link') || e.target.parentElement.classList.contains('view-link')) {
+      e.preventDefault();
+      
+      const link = e.target.classList.contains('view-link') ? e.target : e.target.parentElement;
+      const docName = link.dataset.doc;
+      
+      if (docName) {
+        showToast('Document Viewer', `Viewing document: ${docName}`, 'info');
+        
+        // In a real app, this would open a document viewer or new page
+        // For demo, we'll just show an alert
+        setTimeout(function() {
+          alert(`Viewing document: ${docName}\n\nIn a real application, this would open the document in a viewer.`);
+        }, 500);
+      }
+    }
+    
+    // Download document
+    if (e.target.classList.contains('download-link') || e.target.parentElement.classList.contains('download-link')) {
+      e.preventDefault();
+      
+      const link = e.target.classList.contains('download-link') ? e.target : e.target.parentElement;
+      const docName = link.dataset.doc;
+      
+      if (docName) {
+        showToast('Download Started', `Downloading: ${docName}`, 'info');
+        
+        // Simulate download
+        setTimeout(function() {
+          showToast('Download Complete', `${docName} downloaded successfully`, 'success');
+        }, 1500);
+      }
+    }
+  });
+}
+
+// Call this function when the document is ready
+document.addEventListener('DOMContentLoaded', initializeBidDocuments);
+
+/**
+ * Render documents for a specific project with optional search filter
+ * @param {string} project - Project name
+ * @param {string} filter - Optional search filter
+ */
+function renderDocuments(project, filter = '') {
+  const tableBody = document.getElementById('docTableBody');
+  if (!tableBody) return;
+  
+  // Show loading
+  tableBody.innerHTML = '<tr><td colspan="6"><div class="loading-spinner"></div></td></tr>';
+  
+  // Use dashboardData if available, otherwise create dummy data
+  const projectDocs = window.dashboardData && window.dashboardData.projects && window.dashboardData.projects[project] || [];
+  
+  // Filter documents if a search term is provided
+  const filteredDocs = filter ? 
+    projectDocs.filter(doc => 
+      doc.name.toLowerCase().includes(filter.toLowerCase()) || 
+      doc.type.toLowerCase().includes(filter.toLowerCase())
+    ) : projectDocs;
+  
+  // Simulate loading delay
+  setTimeout(function() {
+    if (filteredDocs.length === 0) {
+      tableBody.innerHTML = '<tr><td colspan="6" class="empty-message">No documents found matching your criteria.</td></tr>';
+      return;
+    }
+    
+    tableBody.innerHTML = '';
+    
+    filteredDocs.forEach(function(doc) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><input type="checkbox" class="doc-select" data-name="${doc.name}"></td>
+        <td>${doc.name}</td>
+        <td>${doc.type}</td>
+        <td>${formatDate(doc.uploaded_date)}</td>
+        <td>${doc.status}</td>
+        <td>
+          <a href="#" class="view-link" data-doc="${doc.name}">View</a> | 
+          <a href="#" class="download-link" data-doc="${doc.name}">Download</a>
+        </td>
+      `;
+      tableBody.appendChild(tr);
+    });
+    
+    // Update metrics
+    updateDocMetrics();
+  }, 500); // Simulate network delay
+}
+
+/**
+ * Update document metrics on the page
+ */
+function updateDocMetrics() {
+  // Use dashboardData if available, otherwise use dummy data
+  const allDocs = window.dashboardData ? window.dashboardData.documents : [];
+  const totalDocs = document.getElementById('totalDocs');
+  const pendingDocs = document.getElementById('pendingDocs');
+  const reviewedDocs = document.getElementById('reviewedDocs');
+  const projectsCount = document.getElementById('projectsCount');
+  
+  if (totalDocs) totalDocs.textContent = allDocs.length || 0;
+  
+  if (pendingDocs) {
+    const pendingCount = allDocs.filter(d => d && d.status === 'Pending Review').length || 0;
+    pendingDocs.textContent = pendingCount;
+  }
+  
+  if (reviewedDocs) {
+    const reviewedCount = allDocs.filter(d => d && d.status === 'Reviewed').length || 0;
+    reviewedDocs.textContent = reviewedCount;
+  }
+  
+  if (projectsCount && window.dashboardData && window.dashboardData.projects) {
+    projectsCount.textContent = Object.keys(window.dashboardData.projects).length || 0;
+  }
+}
+
+/**
+ * Format date for display
+ * @param {string} dateString - Date string to format
+ * @returns {string} Formatted date
+ */
+function formatDate(dateString) {
+  if (!dateString) return 'N/A';
+  
+  try {
+    const date = new Date(dateString);
+    return date.toLocaleDateString();
+  } catch (error) {
+    return 'Invalid Date';
+  }
+}
+
+/**
+ * Show toast notification
+ * @param {string} title - Toast title
+ * @param {string} message - Toast message
+ * @param {string} type - Toast type (success, error, warning, info)
+ */
+function showToast(title, message, type = 'info') {
+  const toastContainer = document.getElementById('toastContainer');
+  if (!toastContainer) return;
+  
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  
+  let iconSvg = '';
+  if (type === 'success') {
+    iconSvg = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>';
+  } else if (type === 'error') {
+    iconSvg = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>';
+  } else if (type === 'warning') {
+    iconSvg = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>';
+  } else {
+    iconSvg = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>';
+  }
+  
+  toast.innerHTML = `
+    <div class="toast-icon">${iconSvg}</div>
+    <div class="toast-content">
+      <div class="toast-title">${title}</div>
+      <div class="toast-message">${message}</div>
+    </div>
+    <button class="toast-close">&times;</button>
+  `;
+  
+  toastContainer.appendChild(toast);
+  
+  // Add event listener to close button
+  toast.querySelector('.toast-close').addEventListener('click', function() {
+    toast.style.opacity = '0';
+    setTimeout(function() {
+      toast.remove();
+    }, 300);
+  });
+  
+  // Auto-remove after 5 seconds
+  setTimeout(function() {
+    toast.style.opacity = '0';
+    setTimeout(function() {
+      toast.remove();
+    }, 300);
+  }, 5000);
+}
+
+    </script>
+</body>
+</html>
